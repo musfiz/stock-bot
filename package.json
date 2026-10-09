@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@qdrant/js-client-rest": "^1.19.0",
+    "mysql2": "^3.24.5",
+    "ollama": "^0.6.4"
+  }
+}
