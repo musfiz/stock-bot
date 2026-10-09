@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Bot — Chat & Retrieval Inspector</title>
+    <style>
+        body { background-color: #111827; color: #f3f4f6; font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        header { background-color: #1f2937; border-bottom: 1px solid #374151; padding: 0.75rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+        .chat-side { width: 60%; display: flex; flex-direction: column; background-color: #111827; border-right: 1px solid #374151; height: 100%; }
+        .inspector-side { width: 40%; display: flex; flex-direction: column; background-color: #030712; height: 100%; overflow: hidden; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 1.5rem; }
+        .bot-msg { display: flex; gap: 0.75rem; max-width: 42rem; margin-bottom: 1rem; }
+        .user-msg { display: flex; gap: 0.75rem; max-width: 42rem; margin-left: auto; justify-content: flex-end; margin-bottom: 1rem; }
+        .bot-bubble { background-color: #1f2937; padding: 0.75rem 1rem; border-radius: 1rem; border-top-left-radius: 0; border: 1px solid #374151; font-size: 0.875rem; line-height: 1.5; white-space: pre-wrap; }
+        .user-bubble { background-color: #2563eb; padding: 0.75rem 1rem; border-radius: 1rem; border-top-right-radius: 0; color: white; font-size: 0.875rem; line-height: 1.5; }
+        .avatar { padding: 0.4rem; border-radius: 0.5rem; height: 22px; width: 22px; text-align: center; line-height: 22px; }
+        .chat-input-area { padding: 1rem; background-color: #111827; border-top: 1px solid #374151; }
+        .input-box { display: flex; background-color: #1f2937; border: 1px solid #374151; border-radius: 0.75rem; padding: 0.5rem; gap: 0.5rem; }
+        .input-box input { flex: 1; background: transparent; border: none; color: white; padding: 0.5rem; outline: none; }
+        .send-btn { background-color: #2563eb; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.5rem; cursor: pointer; }
+        .send-btn:hover { background-color: #1d4ed8; }
+        .api-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .api-row input { flex: 1; background: #030712; border: 1px solid #374151; color: #9ca3af; border-radius: 0.5rem; padding: 0.4rem 0.6rem; font-size: 0.75rem; outline: none; }
+        .inspector-header { padding: 1rem; background-color: #1f2937; border-bottom: 1px solid #374151; display: flex; justify-content: space-between; align-items: center; }
+        .inspector-content { flex: 1; overflow-y: auto; padding: 1rem; font-family: ui-monospace, monospace; font-size: 0.75rem; }
+        .data-block { background-color: #111827; border: 1px solid #1f2937; padding: 0.75rem; border-radius: 0.5rem; margin-bottom: 1rem; color: #d1d5db; white-space: pre-wrap; word-break: break-word; }
+        .badge { font-size: 0.75rem; background-color: #451a03; color: #fbbf24; border: 1px solid #78350f; padding: 0.125rem 0.5rem; border-radius: 0.25rem; }
+        .meta-text { color: #34d399; }
+    </style>
+</head>
+<body>
+    <header>
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+            <span style="font-size:1.4rem;">🤖</span>
+            <h1 style="margin:0;font-size:1.15rem;">Inventory Bot — Chat &amp; Retrieval Inspector</h1>
+        </div>
+        <span id="modelLabel" style="font-size:0.75rem;color:#9ca3af;font-family:monospace;">Model: …</span>
+    </header>
+    <div class="main-container">
+        <main class="chat-side">
+            <div class="chat-messages" id="log"></div>
+            <div class="chat-input-area">
+                <div class="api-row"><input id="api" value="http://localhost:3000" spellcheck="false"></div>
+                <form class="input-box" id="form">
+                    <input id="q" type="text" placeholder="আটার দাম কত? / atar dam koto / Sugar stock?" maxlength="300" autocomplete="off">
+                    <button type="submit" class="send-btn">Send</button>
+                </form>
+            </div>
+        </main>
+        <aside class="inspector-side">
+            <div class="inspector-header">
+                <span style="font-size:0.8rem;font-weight:600;">🔍 RETRIEVAL DEBUG</span>
+                <span class="badge" id="simBadge">—</span>
+            </div>
+            <div class="inspector-content" id="debug"><div class="data-block">Send a message to see retrieved products, scores and stock.</div></div>
+        </aside>
+    </div>
+<script>
+var sessionId = 'inspector-' + Math.random().toString(36).slice(2);
+var log = document.getElementById('log');
+var debug = document.getElementById('debug');
+var simBadge = document.getElementById('simBadge');
+
+function bubble(text, mine) {
+  var row = document.createElement('div');
+  row.className = mine ? 'user-msg' : 'bot-msg';
+  row.innerHTML = mine
+    ? '<div class="user-bubble"></div><div class="avatar" style="background:#4b5563;">👤</div>'
+    : '<div class="avatar" style="background:#2563eb;color:#fff;">🤖</div><div class="bot-bubble"></div>';
+  row.querySelector(mine ? '.user-bubble' : '.bot-bubble').textContent = text;
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+  return row.querySelector(mine ? '.user-bubble' : '.bot-bubble');
+}
+
+function api() { return document.getElementById('api').value.replace(/\/$/, ''); }
+
+fetch(api() + '/meta').then(function (r) { return r.json(); })
+  .then(function (m) { document.getElementById('modelLabel').textContent = 'Model: ' + m.chatModel + ' · ' + m.embedModel; })
+  .catch(function () { document.getElementById('modelLabel').textContent = 'Model: server offline?'; });
+document.getElementById('api').addEventListener('change', function () {
+  fetch(api() + '/meta').then(function (r) { return r.json(); })
+    .then(function (m) { document.getElementById('modelLabel').textContent = 'Model: ' + m.chatModel + ' · ' + m.embedModel; })
+    .catch(function () {});
+});
+
+bubble('আসসালামু আলাইকুম! কোন পণ্যের দাম বা stock জানতে চান?', false);
+
+document.getElementById('form').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var q = document.getElementById('q').value.trim();
+  if (!q) return;
+  document.getElementById('q').value = '';
+  bubble(q, true);
+  var b = bubble('', false);
+  var full = '';
+  fetch(api() + '/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: q, sessionId: sessionId, stream: true }),
+  }).then(function (res) {
+    var reader = res.body.getReader();
+    var dec = new TextDecoder();
+    var buf = '';
+    function pump() {
+      return reader.read().then(function (r) {
+        if (r.done) return;
+        buf += dec.decode(r.value, { stream: true });
+        var parts = buf.split('\n\n');
+        buf = parts.pop();
+        parts.forEach(function (chunk) {
+          var m = chunk.match(/event: (\w+)\ndata: ([\s\S]*)/);
+          if (!m) return;
+          var data = JSON.parse(m[2]);
+          if (m[1] === 'token') { full += data; b.textContent = full; log.scrollTop = log.scrollHeight; }
+          if (m[1] === 'debug') { showDebug(data); }
+        });
+        return pump();
+      });
+    }
+    return pump();
+  }).catch(function () { b.textContent = 'দুঃখিত, সার্ভারে সংযোগ হয়নি। server.js চালু আছে তো?'; });
+});
+
+function showDebug(d) {
+  debug.innerHTML = '';
+  var lang = document.createElement('div');
+  lang.className = 'data-block meta-text';
+  lang.textContent = 'lang: ' + d.lang + ' · products: ' + d.products.length;
+  debug.appendChild(lang);
+  if (!d.products.length) {
+    var nb = document.createElement('div');
+    nb.className = 'data-block';
+    nb.textContent = '(no product matched)';
+    debug.appendChild(nb);
+    simBadge.textContent = '—';
+    return;
+  }
+  simBadge.textContent = 'top: ' + d.products[0].match;
+  d.products.forEach(function (p) {
+    var el = document.createElement('div');
+    el.className = 'data-block';
+    el.textContent = p.name + '  (match ' + p.match + ', stock ' + p.stock_qty + ')\n' +
+      p.variations.map(function (v) { return '  - ' + (v.name || v.sku) + ' · price ' + v.price + ' · stock ' + v.stock; }).join('\n');
+    debug.appendChild(el);
+  });
+}
+</script>
+</body>
+</html>

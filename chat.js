@@ -1,6 +1,13 @@
 import readline from 'node:readline';
 import { ask } from './bot.js';
 import { db } from './config.js';
+import { warmup } from './warmup.js';
+
+// চালুর সময় মডেল গরম রাখা, যাতে প্রথম উত্তরে দেরি না হয়।
+await warmup().catch((err) => console.error('warmup failed:', err.message));
+if (!process.env.OLLAMA_MAX_LOADED_MODELS) {
+  console.log('পরামর্শ: OLLAMA_MAX_LOADED_MODELS=2 দিলে দুই মডেল একসাথে RAM-এ থাকবে।');
+}
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -8,8 +15,7 @@ const rl = readline.createInterface({
   terminal: Boolean(process.stdin.isTTY),
 });
 
-// readline.question() একবারে একটা মাত্র লাইন নেয়, তাই piped input এ
-// বাকি লাইনগুলো হারিয়ে যায়। লাইনগুলো queue তে রেখে একটা একটা করে নিই।
+// piped input-এর লাইন queue-তে রাখা, যাতে কোনো লাইন না হারায়।
 const pending = [];
 const waiting = [];
 let closed = false;
@@ -35,7 +41,9 @@ function readLine() {
   return new Promise((resolve) => waiting.push(resolve));
 }
 
+// CLI session-এর history ও শেষ পণ্য মনে রাখা।
 const history = [];
+let carryover = [];
 
 console.log(`Inventory bot চালু। বন্ধ করতে ‘exit’ লিখুন।\n`);
 
@@ -51,19 +59,17 @@ try {
 
     process.stdout.write('বুদবুদ: ');
     let reply = '';
-    let buffer = '';
     try {
-      for await (const piece of ask(q, history)) {
+      // chunk এলেই ছাপানো, কোনো কৃত্রিম delay নেই।
+      for await (const piece of ask(q, history, {
+        carryover,
+        onProducts: (p) => {
+          carryover = p;
+        },
+      })) {
         reply += piece;
-        buffer += piece;
-        const ready = buffer.match(/^[\s\S]*\s/)?.[0];
-        if (ready) {
-          buffer = buffer.slice(ready.length);
-          process.stdout.write(ready);
-          await new Promise((r) => setTimeout(r, 30));
-        }
+        process.stdout.write(piece);
       }
-      if (buffer) process.stdout.write(buffer);
     } catch (err) {
       console.error('\nদুঃখিত, উত্তর দিতে সমস্যা হয়েছে:', err.message);
     }
